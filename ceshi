@@ -196,4 +196,50 @@ def filter_new_stock(context,stock_list):
     yesterday = context.previous_date
     return [stock for stock in stock_list if not yesterday - get_security_info(stock).start_date < datetime.timedelta(days=250)]
 
+def adjust_position(context, buy_stocks):
+    # 获取当前持仓股票列表和持仓数量
+    positions = context.portfolio.positions
+    position_count = len(positions)
+    
+    # 计算可用资金分配给每只股票的金额
+    cash_per_stock = context.portfolio.cash / (g.stock_num - position_count)
+    
+    # 对于每个已有持仓的股票，检查其是否应该卖出
+    for stock in positions:
+        # 如果股票不在应买入列表中或者评分比新选股票低，则卖出
+        if stock not in buy_stocks or get_stock_score(stock) < get_stock_score(buy_stocks[0]):
+            position = positions[stock]
+            close_position(position)
+    
+    # 买入新选股票，如果当前持仓不足目标持仓数
+    for i, stock in enumerate(buy_stocks):
+        # 如果股票已经持仓，则跳过
+        if stock in positions:
+            continue
+        
+        # 计算该股票买入的目标金额
+        if position_count + i + 1 < g.stock_num:
+            target_value = cash_per_stock
+        else:
+            target_value = context.portfolio.cash
+        
+        # 如果新选股票的评分比已有持仓最低的股票高，则卖出持仓最低的股票
+        if i == 0 and position_count == g.stock_num and get_stock_score(stock) > get_stock_score(min(positions, key=lambda x: get_stock_score(x)))):
+            position = positions[min(positions, key=lambda x: get_stock_score(x))]
+            close_position(position)
+        
+        # 买入该股票
+        open_position(stock, target_value)
+import talib
+
+def check_buy_condition(stock):
+    prices = attribute_history(stock, 60, '1d', ['close'])
+    close_prices = prices['close']
+    ma20 = talib.SMA(close_prices, timeperiod=20)[-1]
+    ma60 = talib.SMA(close_prices, timeperiod=60)[-1]
+    current_price = get_current_data()[stock].last_price
+    if current_price < ma20 and current_price > ma60:
+        return True
+    else:
+        return False
 
